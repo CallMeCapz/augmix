@@ -5,3 +5,4 @@ CIFAR-100-C.tar
 digital.tar
 noise.tar
 weather.tar
+__pycache__/
