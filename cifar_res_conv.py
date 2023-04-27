@@ -33,7 +33,10 @@ import numpy as np
 
 #own code
 from torchvision.models import resnet18
+from torchvision.models import ResNet18_Weights
 from torchvision.models import convnext_tiny
+from torchvision.models import ConvNeXt_Tiny_Weights
+from torch.utils.tensorboard import SummaryWriter
 #own code
 
 from third_party.ResNeXt_DenseNet.models.densenet import densenet
@@ -45,6 +48,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torchvision import datasets
 from torchvision import transforms
+
 
 parser = argparse.ArgumentParser(
     description='Trains a CIFAR Classifier',
@@ -351,13 +355,13 @@ def main():
     net = resnet18()
     net.fc = torch.nn.Linear(512, num_classes)
   elif args.model == 'resnet18_pre':
-    net = resnet18(pretrained=True)
+    net = resnet18(weights=ResNet18_Weights.DEFAULT)
     net.fc = torch.nn.Linear(512, num_classes)
   elif args.model == 'convnext_tiny':
     net = convnext_tiny()
     net.head = torch.nn.Linear(768, num_classes)
   elif args.model == 'convnext_tiny_pre':
-    net = convnext_tiny(pretrained=True)
+    net = convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
     net.head = torch.nn.Linear(768, num_classes)
   # own code  
   
@@ -414,11 +418,20 @@ def main():
 
   best_acc = 0
   print('Beginning training from epoch:', start_epoch + 1)
+  # own code
+  writer = SummaryWriter(log_dir='runs/' + args.model + '_' + args.dataset)
+  # own code
   for epoch in range(start_epoch, args.epochs):
     begin_time = time.time()
 
     train_loss_ema = train(net, train_loader, optimizer, scheduler)
     test_loss, test_acc = test(net, test_loader)
+    
+    # own code
+    writer.add_scalar('Loss/train', train_loss_ema, epoch)
+    writer.add_scalar('Loss/test', test_loss, epoch)
+    writer.add_scalar('Accuracy/test', test_acc, epoch)
+    # own code
 
     is_best = test_acc > best_acc
     best_acc = max(test_acc, best_acc)
@@ -453,6 +466,10 @@ def main():
 
   test_c_acc = test_c(net, test_data, base_c_path)
   print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
+  
+  # own code
+  writer.close()
+  # own code
 
   with open(log_path, 'a') as f:
     f.write('%03d,%05d,%0.6f,%0.5f,%0.2f\n' %
