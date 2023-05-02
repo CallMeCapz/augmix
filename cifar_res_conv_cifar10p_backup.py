@@ -388,12 +388,13 @@ def test_p(net, c_p_dir):
             dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
         predictions, ranks = [], []
-   
+
         with torch.no_grad():
 
             for data in loader:
                 num_vids = data.size(0)
-                data = data.view(-1,3,32,32).cuda()
+                #data = data.view(-1,3,32,32).cuda()
+                data = data.view(-1,3,32,32)
                 output = net(data * 2 - 1)
                 for vid in output.view(num_vids, -1, num_classes):
                     predictions.append(vid.argmax(1).to('cpu').numpy())
@@ -412,7 +413,7 @@ def test_p(net, c_p_dir):
             print(100. * current_flip)
             # print('Top5 Distance\t{:.5f}'.format(ranking_dist(ranks, True if 'noise' in p else False, mode='top5')))
             # print('Zipf Distance\t{:.5f}'.format(current_zipf))
-    
+
     print(flip_list)
     print('\nMean Flipping Prob\t{:.5f}'.format(100. * np.mean(flip_list)))
     # print('Mean Zipf Distance\t{:.5f}'.format(np.mean(zipf_list)))
@@ -536,8 +537,6 @@ def main():
 
   # Distribute model across all visible GPUs
   net = torch.nn.DataParallel(net).cuda()
-  #net = net.module.to('cpu')
-  #net = net.to('cpu')
   cudnn.benchmark = True
 
   start_epoch = 0

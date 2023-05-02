@@ -37,9 +37,6 @@ from torchvision.models import ResNet18_Weights
 from torchvision.models import convnext_tiny
 from torchvision.models import ConvNeXt_Tiny_Weights
 from torch.utils.tensorboard import SummaryWriter
-
-from tqdm import tqdm
-from scipy.stats import rankdata
 #own code
 
 from third_party.ResNeXt_DenseNet.models.densenet import densenet
@@ -164,11 +161,6 @@ CORRUPTIONS = [
     'jpeg_compression'
 ]
 
-#test
-args.difficulty = 1
-identity = np.asarray(range(1, 10+1))
-cum_sum_top5 = np.cumsum(np.asarray([0] + [1] * 5 + [0] * (10-1 - 5)))
-#test
 
 def get_lr(step, total_steps, lr_max, lr_min):
   """Compute learning rate according to cosine annealing schedule."""
@@ -313,112 +305,6 @@ def test_c(net, test_data, base_path):
   return np.mean(corruption_accs)
 
 
-# own code
-
-def dist(sigma, mode='top5'):
-    args.difficulty = 1
-    identity = np.asarray(range(1, 10+1))
-    cum_sum_top5 = np.cumsum(np.asarray([0] + [1] * 5 + [0] * (10-1 - 5)))
-    recip = 1./identity
-    
-    if mode == 'top5':
-        return np.sum(np.abs(cum_sum_top5[:5] - cum_sum_top5[sigma-1][:5]))
-    elif mode == 'zipf':
-        return np.sum(np.abs(recip - recip[sigma-1])*recip)
-
-
-def ranking_dist(ranks, noise_perturbation=False, mode='top5'):
-    result = 0
-    step_size = 1 if noise_perturbation else args.difficulty
-
-    for vid_ranks in ranks:
-        result_for_vid = []
-
-        for i in range(step_size):
-            perm1 = vid_ranks[i]
-            perm1_inv = np.argsort(perm1)
-
-            for rank in vid_ranks[i::step_size][1:]:
-                perm2 = rank
-                result_for_vid.append(dist(perm2[perm1_inv], mode))
-                if not noise_perturbation:
-                    perm1 = perm2
-                    perm1_inv = np.argsort(perm1)
-
-        result += np.mean(result_for_vid) / len(ranks)
-
-    return result
-
-
-def flip_prob(predictions, noise_perturbation=False):
-    result = 0
-    step_size = 1 if noise_perturbation else args.difficulty
-
-    for vid_preds in predictions:
-        result_for_vid = []
-
-        for i in range(step_size):
-            prev_pred = vid_preds[i]
-
-            for pred in vid_preds[i::step_size][1:]:
-                result_for_vid.append(int(prev_pred != pred))
-                if not noise_perturbation: prev_pred = pred
-
-        result += np.mean(result_for_vid) / len(predictions)
-
-    return result
-
-def test_p(net, c_p_dir):
-    net.eval()
-    num_classes = 10
-    dummy_targets = torch.LongTensor(np.random.randint(0, num_classes, (10000,)))
-
-    flip_list = []
-    zipf_list = []
-
-    for p in ['gaussian_noise', 'shot_noise', 'motion_blur', 'zoom_blur',
-              'spatter', 'brightness', 'translate', 'rotate', 'tilt', 'scale']:
-        # ,'speckle_noise', 'gaussian_blur', 'snow', 'shear']:
-        dataset = torch.from_numpy(np.float32(np.load(os.path.join(c_p_dir, p + '.npy')).transpose((0,1,4,2,3))))/255.
-
-        ood_data = torch.utils.data.TensorDataset(dataset, dummy_targets)
-
-        loader = torch.utils.data.DataLoader(
-            #dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
-            dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
-
-        predictions, ranks = [], []
-   
-        with torch.no_grad():
-
-            for data in loader:
-                num_vids = data.size(0)
-                data = data.view(-1,3,32,32).cuda()
-                output = net(data * 2 - 1)
-                for vid in output.view(num_vids, -1, num_classes):
-                    predictions.append(vid.argmax(1).to('cpu').numpy())
-                    ranks.append([np.uint16(rankdata(-frame, method='ordinal')) for frame in vid.to('cpu').numpy()])
-
-            ranks = np.asarray(ranks)
-
-            # print('\nComputing Metrics for', p,)
-
-            current_flip = flip_prob(predictions, True if 'noise' in p else False)
-            #current_zipf = ranking_dist(ranks, True if 'noise' in p else False, mode='zipf')
-            flip_list.append(current_flip)
-            #zipf_list.append(current_zipf)
-
-            print('\n' + p, 'Flipping Prob')
-            print(100. * current_flip)
-            # print('Top5 Distance\t{:.5f}'.format(ranking_dist(ranks, True if 'noise' in p else False, mode='top5')))
-            # print('Zipf Distance\t{:.5f}'.format(current_zipf))
-    
-    print(flip_list)
-    print('\nMean Flipping Prob\t{:.5f}'.format(100. * np.mean(flip_list)))
-    # print('Mean Zipf Distance\t{:.5f}'.format(np.mean(zipf_list)))
-    return np.mean(flip_list)
-# own code
-
 def main():
   torch.manual_seed(1)
   np.random.seed(1)
@@ -452,11 +338,6 @@ def main():
     test_data = datasets.CIFAR10(
         './data/cifar', train=False, transform=test_transform, download=True)
     base_c_path = './data/cifar/CIFAR-10-C/'
-    
-    #own code
-    base_p_path = './data/cifar/CIFAR-10-P/'
-    #own code
-    
     num_classes = 10
   else:
     train_data = datasets.CIFAR100(
@@ -480,8 +361,7 @@ def main():
       shuffle=False,
       num_workers=args.num_workers,
       pin_memory=True)
-  
-  
+
   # Create model
   if args.model == 'densenet':
     net = densenet(num_classes=num_classes)
@@ -536,8 +416,6 @@ def main():
 
   # Distribute model across all visible GPUs
   net = torch.nn.DataParallel(net).cuda()
-  #net = net.module.to('cpu')
-  #net = net.to('cpu')
   cudnn.benchmark = True
 
   start_epoch = 0
@@ -560,11 +438,6 @@ def main():
 
     test_c_acc = test_c(net, test_data, base_c_path)
     print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
-    
-    #own code
-    test_p_flip_prob = test_p(net, base_p_path)
-    print('\nMean Flipping Prob\t{:.5f}'.format(100. * test_p_flip_prob))
-    #own code
     return
   
   # own code
